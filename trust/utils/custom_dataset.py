@@ -636,6 +636,111 @@ def load_dataset_custom(datadir, dset_name, feature, split_cfg, augVal=False, da
             print("CIFAR-100 Custom dataset stats: Train size: ", len(train_set), "Val size: ", len(val_set), "Lake size: ", len(lake_set))
             return train_set, val_set, test_set, lake_set, num_cls
             
+    # --- STL-10 support: load from stl10_raw_channel_first.npz and use full unlabeled pool as lake ---
+    if dset_name == "stl10":
+        import numpy as _np
+        from torch.utils.data import Dataset as _TDataset, Subset as _Subset
+    
+        num_cls = 10
+        npz_path = os.path.join(datadir, "stl10_raw_channel_first.npz")
+        if not os.path.exists(npz_path):
+            raise FileNotFoundError(f"STL-10 npz file not found: {npz_path}")
+    
+        dataz = _np.load(npz_path)
+        # expected keys: X_train, y_train, X_test, y_test, X_unlabeled, y_unlabeled (y_unlabeled maybe placeholders)
+        X_train_np = dataz["X_train"]
+        y_train_np = dataz["y_train"]
+        X_test_np = dataz["X_test"]
+        y_test_np = dataz["y_test"]
+        X_unlabeled_np = dataz["X_unlabeled"]
+        y_unlabeled_np = dataz.get("y_unlabeled", None)  # may be placeholders or absent
+    
+        class NPZDataset(_TDataset):
+            def __init__(self, X, y=None, transform=None):
+                import torch as _torch
+                self.X = X
+                # keep targets as numpy array for compatibility with existing code
+                self.targets = _np.array(y) if y is not None else None
+                self.transform = transform
+    
+            def __len__(self):
+                return len(self.X)
+    
+            def __getitem__(self, idx):
+                import torch as _torch
+                x = self.X[idx]  # expected channel-first np array (C,H,W)
+                x_t = _torch.from_numpy(x).float()
+                if self.transform:
+                    x_t = self.transform(x_t)
+                if self.targets is None:
+                    y = -1
+                else:
+                    y = int(self.targets[idx])
+                return x_t, y
+    
+        # Full datasets
+        full_train_ds = NPZDataset(X_train_np, y_train_np)
+        test_set = NPZDataset(X_test_np, y_test_np)
+        lake_full_ds = NPZDataset(X_unlabeled_np, y_unlabeled_np)
+    
+        # Build train and val splits from full_train_ds using split_cfg (per_class_train/per_class_val)
+        # We will sample per-class from X_train (deterministic ordering). If you want randomness, shuffle cls_lists.
+        from collections import defaultdict
+        cls_indices = defaultdict(list)
+        for idx, lab in enumerate(full_train_ds.targets):
+            cls_indices[int(lab)].append(idx)
+    
+        train_idxs = []
+        val_idxs = []
+        for cls in range(num_cls):
+            cls_list = cls_indices[cls]
+            # optionally shuffle:
+            # import random; random.shuffle(cls_list)
+            n_train = int(split_cfg["per_class_train"][cls]) if "per_class_train" in split_cfg else 20
+            n_val = int(split_cfg["per_class_val"][cls]) if "per_class_val" in split_cfg else 10
+            if len(cls_list) < (n_train + n_val):
+                # if available samples are fewer than requested, take what is available and warn
+                take = cls_list
+                train_take = take[:n_train] if len(take) >= n_train else take[: max(0, len(take) - n_val)]
+                val_take = take[len(train_take) : len(train_take) + n_val]
+                print(f"WARNING: class {cls} has only {len(cls_list)} train images; requested {n_train}+{n_val}.")
+            else:
+                train_take = cls_list[:n_train]
+                val_take = cls_list[n_train : n_train + n_val]
+            train_idxs += train_take
+            val_idxs += val_take
+    
+        # Build Subset objects and attach .targets attributes expected by the rest of the code
+        train_set = _Subset(full_train_ds, train_idxs)
+        train_set.targets = full_train_ds.targets[train_idxs]
+    
+        val_set = _Subset(full_train_ds, val_idxs)
+        val_set.targets = full_train_ds.targets[val_idxs]
+    
+        # lake_set: use full unlabeled pool (all indices)
+        lake_indices = list(range(len(lake_full_ds)))
+        lake_set = _Subset(lake_full_ds, lake_indices)
+        # if y_unlabeled exists and used for analysis, attach targets; else set to -1
+        # if lake_full_ds.targets is not None:
+        #     lake_set.targets = lake_full_ds.targets[lake_indices]
+        # else:
+        #     import numpy as _np
+        #     lake_set.targets = _np.array([-1] * len(lake_indices))
+        
+        # lake_set: use the remainder of the Labeled training data that was not used for train or val
+        all_labeled_indices = set(range(len(full_train_ds)))
+        used_indices = set(train_idxs + val_idxs)
+        lake_indices = sorted(list(all_labeled_indices - used_indices))
+
+        lake_set = _Subset(full_train_ds, lake_indices)
+        lake_set.targets = full_train_ds.targets[lake_indices]
+    
+        sel_cls_idx = list(range(num_cls))
+    
+        print("STL-10 Custom dataset stats: Train size:", len(train_set),
+              "Val size:", len(val_set), "Lake size:", len(lake_set), "Test size:", len(test_set))
+        return train_set, val_set, test_set, lake_set, sel_cls_idx, num_cls
+
     
     if(dset_name=="breast_density"):
         num_cls=4
