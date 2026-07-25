@@ -1443,12 +1443,11 @@ def run_targeted_selection(
 
 
 # %%
-experiments = ["exp1"]
-seeds = [48]
-#exp1seed=24,
-# experiments = ["exp2","exp3","exp4"]
-# seeds = [48, 86, 28, 92]
-budgets = [25,50,100,200]
+# exp1 (seed 48) was the initial single-seed sweep; exp2-4 follow the same
+# seed convention as the other datasets.
+experiments = ["exp2", "exp3", "exp4"]
+seeds = [48, 86, 28, 92]
+budgets = [25,50,100,175,200]
 
 embedding_type = "features"  # Type of the representation to use (gradients/features)
 model_name = "ResNet18"  # Model to use for training
