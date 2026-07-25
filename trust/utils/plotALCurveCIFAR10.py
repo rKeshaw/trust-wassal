@@ -1,9 +1,13 @@
 import matplotlib.pyplot as plt
 import pandas as pd
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from trust.utils.paths import RESULTS_DIR
 
 # File paths
-us_filepath = "/home/wassal/trust-wassal/tutorials/results/cifar10/classimb/rounds5/coreset/100/exp1/cifar10_classimb_AL_10_coreset_budget:100_rounds:5_runsexp1.csv"
-us_soft_filepath = "/home/wassal/trust-wassal/tutorials/results/cifar10/classimb/rounds5/coreset_soft/100/exp1/cifar10_classimb_AL_WITHSOFT_10_coreset_soft_budget:100_rounds:5_runsexp1.csv"
+us_filepath = str(RESULTS_DIR / "cifar10" / "classimb" / "rounds5" / "coreset" / "100" / "exp1" / "cifar10_classimb_AL_10_coreset_budget:100_rounds:5_runsexp1.csv")
+us_soft_filepath = str(RESULTS_DIR / "cifar10" / "classimb" / "rounds5" / "coreset_soft" / "100" / "exp1" / "cifar10_classimb_AL_WITHSOFT_10_coreset_soft_budget:100_rounds:5_runsexp1.csv")
 
 # Read data without headers and manually assign column names based on CIFAR10
 column_names=["Class0", "Class1", "Class2", "Class3", "Class4", "Class5", "Class6", "Class7", "Class8", "Class9", "Avg"]

@@ -1,8 +1,12 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 import os
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from trust.utils.paths import RESULTS_DIR
 # Load data from CSV
-base_dir = "/home/wassal/trust-wassal/tutorials/results/cifar10/classimb"
+base_dir = str(RESULTS_DIR / "cifar10" / "classimb")
 output_path = os.path.join(base_dir, "output_statistics.csv")
 
 

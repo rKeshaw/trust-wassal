@@ -2,16 +2,17 @@ import os
 import pandas as pd
 import csv
 import matplotlib.pyplot as plt
-#for cifar
-#base_dir = "/home/wassal/trust-wassal/tutorials/results/svhn/classimb"
-#budgets=['50', '100', '150', '200']
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from trust.utils.paths import RESULTS_DIR
 
 #budgets=['5']
 #filename = "output_statistics_cifar_classimb_withAL_"
 rounds=10
 
 #for svhn
-base_dir = "/home/venkat/trust-wassal/tutorials/results/inpaper/svhn/classimb/rounds"+str(10)
+base_dir = str(RESULTS_DIR / "inpaper" / "svhn" / "classimb" / ("rounds"+str(rounds)))
 #budgets=['5', '10', '15', '20', '25']
 budgets = [25,50,100,175,200]
 filename = "output_statistics_svhn_vanilla"
@@ -25,7 +26,7 @@ filename = "output_statistics_svhn_vanilla"
 #strategies = ["WASSAL",  "fl1mi", "fl2mi", "gcmi", "logdetmi","fl1mi_withsoft", "fl2mi_withsoft", "gcmi_withsoft", "logdetmi_withsoft", "random","WASSAL_P","logdetcmi","flcmi","logdetcmi_withsoft","flcmi_withsoft"]
 #strategy_group="WASSAL_withsoft"
 #strategies = ["random","badge","us","glister","coreset","glister","gradmatch-tss","leastconf","margin","badge_withsoft","us_withsoft","glister_withsoft","coreset_withsoft","glister_withsoft","gradmatch-tss_withsoft","leastconf_withsoft","margin_withsoft"]
-strategies = ['WASSAL','WASSALMAXPRE','WASSALMAX','WASSALMIN','glister','gradmatch-tss','us','coreset','leastconf','margin','random']
+strategies = ['WASSAL','WASSAL1h','WASSALMAX','WASSALMIN','glister','gradmatch-tss','us','coreset','leastconf','margin','random']
 strategy_group="AL_WITHSOFT"
 
 
@@ -87,7 +88,7 @@ with open(output_path+"_allclasses.csv", "w", newline='') as csvfile:
                     y2 = df.iloc[rounds-2, 10]
                     gain2 = y2 - y1
 
-                    gain=gain1 if gain1>gain2 else gain2
+                    gain=gain1 #if gain1>gain2 else gain2
                     
                    
                     gains.append(gain)
@@ -190,8 +191,8 @@ def generate_latex_table(data):
 
     for strategy in main_strategies:
         formatted_strategy = strategy.replace("_", "\\_")
-        if 'withsoft' not in strategy:
-            formatted_strategy += " (withsoft)"
+        #if 'withsoft' not in strategy:
+        #    formatted_strategy += " (withsoft)"
         row_data = [formatted_strategy]
         for budget in budgets:
             normal_subset = data[(data['Strategy'] == strategy) & (data['Budget'] == budget)]

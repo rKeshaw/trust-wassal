@@ -1,42 +1,84 @@
-import matplotlib.pyplot as plt
 import pandas as pd
 
-# File paths
-us_filepath = "/home/wassal/trust-wassal/tutorials/results/pneumoniamnist/classimb/rounds10/gradmatch-tss/40/exp2/pneumoniamnist_classimb_AL_2_gradmatch-tss_budget:40_rounds:10_runsexp2.csv"
-us_soft_filepath = "/home/wassal/trust-wassal/tutorials/results/pneumoniamnist/classimb/rounds10/gradmatch-tss_withsoft/40/exp2/pneumoniamnist_classimb_AL_WITHSOFT_2_gradmatch-tss_withsoft_budget:40_rounds:10_runsexp2.csv"
+import matplotlib.pyplot as plt
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from trust.utils.paths import RESULTS_DIR
+
+# File paths for each budget
+budgets = [20, 40, 60, 80]
+_pneumo_dir = str(RESULTS_DIR / "inpaper" / "pneumoniamnist" / "classimb" / "rounds10")
+filepaths = [
+    _pneumo_dir + "/badge/{budget}/exp2/pneumoniamnist_2_badge_budget:{budget}_rounds:10_runs_exp2.csv",
+    #_pneumo_dir + "/random/{budget}/exp2/pneumoniamnist_2_random_budget:{budget}_rounds:10_runs_exp2.csv",
+    _pneumo_dir + "/coreset/{budget}/exp2/pneumoniamnist_2_coreset_budget:{budget}_rounds:10_runs_exp2.csv",
+    _pneumo_dir + "/us/{budget}/exp2/pneumoniamnist_2_us_budget:{budget}_rounds:10_runs_exp2.csv",
+    _pneumo_dir + "/WASSAL/{budget}/exp2/pneumoniamnist_2_WASSAL_WITHSOFT_budget:{budget}_rounds:10_runs_exp2.csv"
+]
 
 # Read data without headers and manually assign column names
 column_names = ["Class0", "Class1", "Avg"]
-# Assuming the data in each file is stored as comma-separated values
-us_data = pd.read_csv(us_filepath ,header=None, names=column_names)
-us_soft_data = pd.read_csv(us_soft_filepath, header=None, names=column_names)
 
-# Extract the data for Class 0, Class 1, and Average for each approach
-us_class0 = us_data['Class0'].values
-us_class1 = us_data['Class1'].values
-us_avg = us_data['Avg'].values
+# Create a 2x2 grid of subplots for ALcurve
+fig, axs = plt.subplots(2, 2, figsize=(10, 6))
 
-us_soft_class0 = us_soft_data['Class0'].values
-us_soft_class1 = us_soft_data['Class1'].values
-us_soft_avg = us_soft_data['Avg'].values
+# Plot for each budget in ALcurve
+for i, budget in enumerate(budgets):
+    # Generate file paths for the current budget
+    current_filepaths = [filepath.format(budget=budget) for filepath in filepaths]
+    
+    # Read data for the current budget
+    data = [pd.read_csv(filepath, header=None, names=column_names) for filepath in current_filepaths]
+    
+    # Extract the average data for each approach
+    avg_data = [df['Avg'].values for df in data]
+    
+    # Plot the data for each approach in the corresponding subplot
+    ax = axs[i // 2, i % 2]
+    for avg in avg_data:
+        ax.plot(avg, marker='o', linestyle='--')
+    
+    # Set plot labels and legend for each subplot
+    ax.set_title(f'Accuracy for Budget {budget}')
+    ax.set_xlabel('AL Rounds')
+    ax.set_ylabel('Value')
+    ax.legend(['Badge', 'Random', 'Coreset', 'Uncertainty Sampling', 'WASSAL Accuracy'])
+    ax.grid(True)
 
-# Create a plot
-plt.figure(figsize=(10, 6))
-
-# Plot the data for Uncertainty Sampling
-plt.plot(us_class0, label='Class 0', marker='o')
-plt.plot(us_class1, label='Class 1', marker='o')
-plt.plot(us_avg, label='US Avg', marker='o', linestyle='--')
-
-# Plot the data for Uncertainty Sampling Soft Approach
-plt.plot(us_soft_class0, label='Soft Class 0', marker='s')
-plt.plot(us_soft_class1, label='Soft Class 1', marker='s')
-plt.plot(us_soft_avg, label='US Soft Avg', marker='s', linestyle='--')
-
-plt.title('Uncertainty Sampling vs. Uncertainty Sampling Soft Approach')
-plt.xlabel('AL Rounds')
-plt.ylabel('Value')
-plt.legend()
-plt.grid(True)
+# Adjust the layout and save the figure
 plt.tight_layout()
 plt.savefig('ALcurve.png')
+
+# Create a new figure ALcurve1
+fig1, axs1 = plt.subplots(2,2, figsize=(10, 6))
+
+# Plot for each strategy in ALcurve1
+for i, filepath in enumerate(filepaths):
+    # Read data for each budget
+    data = [pd.read_csv(filepath.format(budget=budget), header=None, names=column_names) for budget in budgets]
+    
+    # Extract the average data for each budget
+    avg_data = [df['Avg'].values for df in data]
+    
+    # Plot the data for each budget in the corresponding subplot
+    ax1 = axs1[i // 2, i % 2]
+    for avg in avg_data:
+        ax1.plot(avg, marker='o', linestyle='--')
+    
+    # Set plot labels and legend for each subplot
+    # Determine the Strategy name from the filepath
+    strategy_name = filepath.split('/')[-4]
+    
+    # Set the title for each subplot
+    ax1.set_title(f'{strategy_name}')
+    ax1.set_xlabel(f'Figure {i+1}')
+    ax1.set_ylabel('Accuaracy')
+    ax1.legend([f'Budget {budget}' for budget in budgets])
+    ax1.grid(True)
+
+# Adjust the layout and save the figure
+plt.tight_layout()
+plt.savefig('ALcurve1.png')
+
+

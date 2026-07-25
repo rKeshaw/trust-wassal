@@ -2,16 +2,17 @@ import os
 import pandas as pd
 import csv
 import matplotlib.pyplot as plt
-#for cifar
-#base_dir = "/home/wassal/trust-wassal/tutorials/results/cifar10/classimb"
-#budgets=['50', '100', '150', '200']
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from trust.utils.paths import RESULTS_DIR
 
 #budgets=['5']
 #filename = "output_statistics_cifar_classimb_withAL_"
 rounds=10
 
 #for cifar10
-base_dir = "/home/venkat/trust-wassal/tutorials/results/inpaper/cifar10/classimb/rounds"+str(rounds)
+base_dir = str(RESULTS_DIR / "inpaper" / "cifar10" / "classimb" / ("rounds"+str(rounds)))
 #budgets=['5', '10', '15', '20', '25']
 budgets = [25,50,100,150,175,200]
 filename = "output_statistics_cifar10_vanilla"
@@ -87,7 +88,7 @@ with open(output_path+"_allclasses.csv", "w", newline='') as csvfile:
                     y2 = df.iloc[rounds-2, 10]
                     gain2 = y2 - y1
 
-                    gain=gain1 if gain1>gain2 else gain2
+                    gain=gain1 #if gain1>gain2 else gain2
                     
                    
                     gains.append(gain)

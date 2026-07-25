@@ -26,8 +26,12 @@ import torchvision.models as models
 from matplotlib import pyplot as plt
 import sys
 import requests
-sys.path.append("/home/venkat/trust-wassal/")
+from pathlib import Path
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPO_ROOT))
+
+from trust.utils.paths import RESULTS_DIR
 from trust.utils.models.resnet import ResNet18
 from trust.utils.models.resnet import ResNet50
 from trust.utils.custom_dataset import load_dataset_custom
@@ -42,7 +46,6 @@ from trust.strategies.random_sampling import RandomSampling
 from trust.strategies.wassal_multiclass import WASSAL_Multiclass
 from trust.strategies.wassal_private import WASSAL_P
 
-sys.path.append("/home/venkat/distil")
 from distil.active_learning_strategies.entropy_sampling import EntropySampling
 from distil.active_learning_strategies.badge import BADGE
 from distil.active_learning_strategies.glister import GLISTER
@@ -709,7 +712,7 @@ def run_targeted_selection(
     val_csvlog = []
     # Results logging file
     all_logs_dir = (
-        "/home/venkat/trust-wassal/tutorials/results/"
+        str(RESULTS_DIR) + "/"
         + experiment_name
         + "/"
         + dataset_name
@@ -762,7 +765,7 @@ def run_targeted_selection(
         "device": device,
         "embedding_type": embedding_type,
         "keep_embedding": True,
-        "lr": 0.003,
+        "lr": 0.0001,
         "wassal_iterations": 10,
         "step_size": 10,
         "min_iteration": 5,
@@ -1044,7 +1047,7 @@ def run_targeted_selection(
                     ]
                     #create a folder to save the simplex plots
                     simplex_dir = (
-                        "/home/venkat/trust-wassal/tutorials/results/"
+                        str(RESULTS_DIR) + "/"
                         + experiment_name
                         + "/"
                         + dataset_name
@@ -1139,7 +1142,7 @@ def run_targeted_selection(
                     targets_refrain = targets_refrain.repeat(len(lake_set))
                     sofftsimplex_query = simplex_query.detach().cpu().numpy()
                     softsimplex_refrain = simplex_refrain.detach().cpu().numpy()
-                    ss_budget =400
+                    ss_budget =100
                     # choose the top simplex_query that contributes 30% to the size of that class in trainset
                     _, top_n_indices = top_elements_contribute_to_percentage(
                         sofftsimplex_query, ss_max_budget_percentage, ss_budget
@@ -1435,7 +1438,7 @@ budgets = [25,50,100,175,200]
 
 # embedding_type = "features" #Type of the representation to use (gradients/features)
 # model_name = 'ResNet18' #Model to use for training
-# initModelPath = "/home/wassal/trust-wassal/tutorials/results/"+data_name + "_" + model_name+"_"+embedding_type + "_" + str(learning_rate) + "_" + str(split_cfg["sel_cls_idx"])
+# initModelPath = str(RESULTS_DIR) + "/"+data_name + "_" + model_name+"_"+embedding_type + "_" + str(learning_rate) + "_" + str(split_cfg["sel_cls_idx"])
 #  # Model Creation
 # model = create_model(model_name, num_cls, device, embedding_type)
 # #List of strategies
@@ -1488,7 +1491,7 @@ budgets = [25,50,100,175,200]
 embedding_type = "features"  # Type of the representation to use (gradients/features)
 model_name = "ResNet18"  # Model to use for training
 initModelPath = (
-    "/home/venkat/trust-wassal/tutorials/results/"
+    str(RESULTS_DIR) + "/"
     + experiment_name
     + "/"
     
