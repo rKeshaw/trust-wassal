@@ -3,5 +3,6 @@
         "editor.defaultFormatter": "ms-python.black-formatter"
     },
     "python.formatting.provider": "none",
-    "editor.wordWrap": "on"
+    "editor.wordWrap": "on",
+    "git.ignoreLimitWarning": true
 }

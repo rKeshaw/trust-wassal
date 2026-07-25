@@ -1,48 +1,35 @@
-tutorials/results/*
-tutorials/All_Wassal/data/*
-trust/strategies/__pycache__/*
-trust/utils/__pycache__/*
-trust/utils/models/__pycache__/*
-tutorials/All_Wassal/wassal_pneumonia.py
-output_statistics.csv
-ALcurve.png
-trust/strategies/wassal_multiclass.py
-cifar10_simplex_distribution_class_0.png
-cifar10_simplex_distribution_class_1.png
-cifar10_simplex_distribution_class_2.png
-cifar10_simplex_distribution_class_3.png
-cifar10_simplex_distribution_class_4.png
-cifar10_simplex_distribution_class_5.png
-cifar10_simplex_distribution_class_6.png
-cifar10_simplex_distribution_class_7.png
-cifar10_simplex_distribution_class_8.png
-cifar10_simplex_distribution_class_9.png
-pneumo_simplex_distribution_class_0.png
-pneumo_simplex_distribution_class_1.png
-data/*
-
-data/train_32x32.mat
-data/cifar-10-batches-py/batches.meta
+# Python
+__pycache__/
 *.pyc
-svhn_simplex_distribution_class_0.png
-svhn_simplex_distribution_class_1.png
-svhn_simplex_distribution_class_2.png
-svhn_simplex_distribution_class_3.png
-svhn_simplex_distribution_class_4.png
-svhn_simplex_distribution_class_5.png
-svhn_simplex_distribution_class_6.png
-svhn_simplex_distribution_class_7.png
-svhn_simplex_distribution_class_8.png
-svhn_simplex_distribution_class_9.png
-.gitignore
+
+# Virtual environments
+.venv/
+.venv_old/
+
+# Datasets (downloaded / prepared locally, see README)
+data/
+tutorials/All_Wassal/data/
+
+# Experiment outputs (large; distributed separately from the code)
+tutorials/results/
+*.log
+
+# Archived legacy scripts and notebooks
+tutorials/All_Wassal/archives/
+
+# Generated analysis artifacts
+ALcurve*.png
+output_statistics.csv
+wassal_results_analysis.csv
+budget_strategy_table.md
+*simplex_distribution*.png
+res.py
+res2.py
+packages.txt
+
+# Local-only / personal files
+informme.py
+notes.txt
+my_snapshot.pickle
 Miniconda3-latest-Linux-x86_64.sh
-.gitignore
-trust/strategies/__pycache__/__init__.cpython-38.pyc
-trust/strategies/__pycache__/scmi.cpython-38.pyc
-trust/strategies/__pycache__/smi.cpython-38.pyc
-trust/strategies/__pycache__/strategy.cpython-38.pyc
-trust/__pycache__/__init__.cpython-38.pyc
-cifarwassal.log
-.gitignore
-.venv
-tutorials/All_Wassal/archives/*
+cuda11.2-installer.sh
