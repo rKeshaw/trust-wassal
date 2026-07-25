@@ -6,7 +6,6 @@ SKIP_METHODS="WASSAL_WITHSOFT"
 SKIP_BUDGETS="175 200"
 DEVICE_ID="1"
 EXPERIMENT_NAME="onlywassal"
-SOFT_LOSS_HYPERPARAM="0.3"
+SOFT_LOSS_HYPERPARAM="1"
 # Call the Python script with the defined arguments
-python3 -u tutorials/All_Wassal/wassal_svhn_multiclass_vanilla.py "$SKIP_STRATEGIES" "$SKIP_METHODS" "$SKIP_BUDGETS" "$DEVICE_ID" "$EXPERIMENT_NAME" "$SOFT_LOSS_HYPERPARAM" 2>&1 | tee tutorials/results/onlywassal/svhnwassalsoft2_may16.log
-python3 informme.py "ssw2"
+python3 -u tutorials/All_Wassal/wassal_svhn_multiclass_vanilla.py "$SKIP_STRATEGIES" "$SKIP_METHODS" "$SKIP_BUDGETS" "$DEVICE_ID" "$EXPERIMENT_NAME" "$SOFT_LOSS_HYPERPARAM" 2>&1 | tee tutorials/results/onlywassal/svhn/svhnwassalsoft2.log
