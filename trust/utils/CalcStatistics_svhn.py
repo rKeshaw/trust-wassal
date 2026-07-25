@@ -26,7 +26,7 @@ filename = "output_statistics_svhn_vanilla"
 #strategies = ["WASSAL",  "fl1mi", "fl2mi", "gcmi", "logdetmi","fl1mi_withsoft", "fl2mi_withsoft", "gcmi_withsoft", "logdetmi_withsoft", "random","WASSAL_P","logdetcmi","flcmi","logdetcmi_withsoft","flcmi_withsoft"]
 #strategy_group="WASSAL_withsoft"
 #strategies = ["random","badge","us","glister","coreset","glister","gradmatch-tss","leastconf","margin","badge_withsoft","us_withsoft","glister_withsoft","coreset_withsoft","glister_withsoft","gradmatch-tss_withsoft","leastconf_withsoft","margin_withsoft"]
-strategies = ['WASSAL','WASSAL1h','WASSALMAX','WASSALMIN','glister','gradmatch-tss','us','coreset','leastconf','margin','random']
+strategies = ['WASSAL_WITHSOFT','badge','glister','gradmatch-tss','us','coreset','leastconf','margin','random']
 strategy_group="AL_WITHSOFT"
 
 
@@ -92,10 +92,10 @@ with open(output_path+"_allclasses.csv", "w", newline='') as csvfile:
                     
                    
                     gains.append(gain)
-                if not gains:
-                    continue
-            
-             # Compute stats after processing all experiments for the current strategy and budget
+            if not gains:
+                continue
+
+            # Compute stats after processing all experiments for the current strategy and budget
             mean_gain, variance, sd_gain = compute_stats(gains)
             #round off mean_gain, variance, sd_gain
             mean_gain=round(mean_gain,2)
