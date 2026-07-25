@@ -7,4 +7,5 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 RESULTS_DIR = REPO_ROOT / "tutorials" / "results"
-DATA_DIR = REPO_ROOT / "tutorials" / "All_Wassal" / "data"
+# Drivers and prepare_*.py use datadir="data" relative to the repo root.
+DATA_DIR = REPO_ROOT / "data"

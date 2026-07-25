@@ -30,23 +30,25 @@ The requirements file pins all dependencies, including `decile_distil` and
 ## Datasets
 
 All datasets are placed under `data/` in the repository root (gitignored).
+Path helpers live in `trust/utils/paths.py` (`REPO_ROOT`, `RESULTS_DIR`,
+`DATA_DIR`).
 
 | Dataset | Setup |
 |---------|-------|
 | CIFAR-10 | Downloaded automatically via torchvision on first run |
 | SVHN | Downloaded automatically via torchvision on first run |
 | PneumoniaMNIST | Downloaded automatically via the bundled MedMNIST loader |
-| STL-10 | Run `python prepare_stl10_channel_first.py` to download STL-10 and produce `data/stl10_raw_channel_first.npz` |
-| Caltech-101 | Run `python prepare_caltech.py` to download via TensorFlow Datasets and produce a stratified 90/10 split as 32x32 images in `data/caltech101_raw_channel_first.npz` (requires `tensorflow-datasets`) |
+| STL-10 | `python prepare_stl10_channel_first.py` → `data/stl10_raw_channel_first.npz` |
+| Caltech-101 | `python prepare_caltech.py` → `data/caltech101_train_90_32.npz` and `data/caltech101_test_10_32.npz` (requires `tensorflow-datasets`) |
 
 ## Repository layout
 
 | Path | Contents |
 |------|----------|
-| `trust/strategies/` | Selection strategies. `wassal_multiclass.py` is the primary WASSAL implementation (used by CIFAR-10, SVHN, STL-10, Caltech-101). `wassal_multiclass_v2.py` is the variant used by PneumoniaMNIST. |
-| `trust/utils/` | Dataset loaders (`custom_dataset.py`, `custom_dataset_medmnist.py`), models (`models/resnet*.py`), statistics (`CalcStatistics_*.py`), plotting, and `paths.py` (repo-relative path constants) |
+| `trust/strategies/` | Selection strategies. `wassal_multiclass.py` is the primary WASSAL implementation (CIFAR-10, SVHN, STL-10, Caltech-101). `wassal_multiclass_v2.py` is used by PneumoniaMNIST. |
+| `trust/utils/` | Dataset loaders, models (`models/resnet*.py`), statistics (`CalcStatistics_*.py`), plotting, and `paths.py` |
 | `tutorials/All_Wassal/` | One experiment driver per dataset (see below) |
-| `scripts/` | Result auditing and analysis tools |
+| `scripts/` | Result merging, auditing, and long-running launch helpers |
 | `*.sh` (repo root) | Experiment launchers that parallelize strategy/budget subsets across GPUs |
 
 ### Canonical experiment drivers
@@ -68,13 +70,13 @@ python3 -u <driver.py> "<SKIP_STRATEGIES>" "<SKIP_METHODS>" "<SKIP_BUDGETS>" <DE
 ```
 
 - `SKIP_STRATEGIES` / `SKIP_METHODS` / `SKIP_BUDGETS` — space-separated lists
-  of strategy groups, methods, and budgets to *skip*, allowing complementary
-  subsets to run in parallel on different GPUs.
+  of strategy groups, methods, and budgets to *skip*, so complementary
+  subsets can run in parallel on different GPUs.
 - `DEVICE_ID` — CUDA device index.
 - `EXPERIMENT_NAME` — top-level results folder (`onlywassal`, `onlyal`,
   `inpaper`, ...).
 - `SOFT_LOSS_HYPERPARAM` — weight of the soft-simplex loss term for the
-  `*_WITHSOFT` variants.
+  `*_WITHSOFT` variants (paper default: `0.3`).
 
 Example — run only WASSAL on CIFAR-10 at all budgets on GPU 0:
 
@@ -83,53 +85,76 @@ python3 -u tutorials/All_Wassal/wassal_cifar10_multiclass_vanilla2.py \
   "random AL AL_WITHSOFT WASSAL_WITHSOFT" "WASSAL" "" 0 onlywassal 0.3
 ```
 
-The shell launchers in the repository root (`cifar10WASSALonly1.sh`,
-`caltechwassal.sh`, `wassalonlystl1.sh`, ...) encode the strategy/budget/GPU
-splits used for the paper. See `REPRODUCE.md` for the full reproduction
-recipe.
+Long GPU jobs should be launched inside **tmux** (or equivalent) so they
+survive closing the IDE/SSH session. For the Caltech-101 paper rerun:
+
+```bash
+bash scripts/run_caltech_tmux.sh
+tmux attach -t caltech-rerun   # Ctrl-b d to detach
+```
+
+See `REPRODUCE.md` for the full per-dataset launcher list and the experiment
+matrix.
 
 ## Results layout
 
-Results are written under `tutorials/results/` (gitignored due to size) with
-the convention:
+Results are written under `tutorials/results/` (gitignored due to size):
 
 ```
 tutorials/results/{experiment_name}/{dataset}/classimb/rounds{N}/{strategy}/{budget}/{expK}/
-    results_{method}_{budget}.json   # per-round test accuracy, per-class selections
-    results_{method}_{budget}.csv    # per-class accuracy per round
+    *_{method}_budget:{budget}_rounds:{N}_runs_{expK}.json
+    *_{method}_budget:{budget}_rounds:{N}_runs_{expK}.csv
 ```
 
-`exp1`..`exp4` are independent runs with fixed seeds (`exp2/exp3/exp4` use
-seeds 48/86/28). The curated paper results live under
-`tutorials/results/inpaper/`.
+`exp2`/`exp3`/`exp4` are the paper seeds (48 / 86 / 28). Curated paper
+results live under `tutorials/results/inpaper/`. Assemble / refresh that tree
+with:
+
+```bash
+python scripts/merge_inpaper.py
+python scripts/audit_results.py
+```
+
+### Paper-results status
+
+| Dataset | Status |
+|---------|--------|
+| CIFAR-10 | Complete (11 strategies × 7 budgets × exp2–4) |
+| SVHN | Complete (`WASSAL_WITHSOFT` + AL baselines × 5 budgets × exp2–4) |
+| PneumoniaMNIST | Complete (`WASSAL_WITHSOFT` + AL baselines × 9 budgets × exp2–4) |
+| STL-10 | Merged into `inpaper/` from `onlywassal` + `onlyal` |
+| Caltech-101 | Multi-seed rerun (exp2–4, budgets including 175) in progress |
 
 ## Reproducing paper tables and figures
 
 ```bash
-# Completeness audit of the results tree
 python scripts/audit_results.py
 
-# Per-dataset statistics (mean/std gain tables, plots, LaTeX)
 python trust/utils/CalcStatistics_cifar10.py
 python trust/utils/CalcStatistics_svhn.py
 python trust/utils/CalcStatistics_pneumonia.py
 python trust/utils/CalcStatistics_stl10.py
-python trust/utils/CalcStatistics_caltech.py
+python trust/utils/CalcStatistics_caltech.py   # after Caltech rerun finishes
 ```
 
-## Sanity check
+Each script writes `_allclasses.csv`, `.png`, and `.tex` next to the results
+it reads.
 
-A lightweight smoke test runs the WASSAL selection loop on dummy data:
+## Sanity check
 
 ```bash
 python test_wassal_smoke.py
 ```
 
+Runs `WASSAL_Multiclass.select_only_for_query` on small class-structured
+dummy data and validates the selection and per-class simplexes.
+
 ## Hardware
 
-Experiments were run on NVIDIA GPUs (one experiment process per GPU). A full
-strategy x budget sweep for one dataset and one seed takes on the order of a
-GPU-day; the shell launchers split the sweep across devices.
+Experiments were run on NVIDIA GPUs (one process per GPU). A full
+strategy × budget sweep for one dataset and one seed is on the order of a
+GPU-day; the shell launchers and `scripts/run_caltech_tmux.sh` split the
+sweep across devices.
 
 ## Acknowledgments
 
