@@ -84,10 +84,11 @@ bash caltech_rerun_all.sh 0
 ## 6. Assembling the paper results tree
 
 STL-10 results were produced in the `onlywassal` and `onlyal` experiment
-folders; merge them into the unified `inpaper` tree:
+folders (and Caltech-101 in `onlywassal`); merge them into the unified
+`inpaper` tree:
 
 ```bash
-python scripts/merge_stl10_inpaper.py
+python scripts/merge_inpaper.py
 ```
 
 Verify completeness of all five datasets:
