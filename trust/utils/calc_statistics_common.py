@@ -1,9 +1,17 @@
 """Shared implementation for the per-dataset CalcStatistics_* scripts.
 
-Computes, for every (strategy, budget), the mean/variance/std over seeds of
-the accuracy gain between the first and last AL round (average-over-classes
-column of the per-round CSV), then writes a summary CSV, a gain-vs-budget
-plot, and a LaTeX table combining each strategy with its `_withsoft` variant.
+For every (strategy, budget) this reports two metrics, aggregated over seeds
+from the average-over-classes column of the per-round CSV:
+
+- **Mean Gain**: last-round minus first-round accuracy. Note this is only
+  comparable across runs that share the same initial model; runs whose
+  round-0 accuracy differs (e.g. a cached initial model vs a freshly
+  initialized one) get a systematically smaller gain, which inflates the
+  standard deviation.
+- **Mean Final Acc**: last-round accuracy, which is independent of the
+  initial model and is therefore the more robust comparison.
+
+Outputs a summary CSV, a plot, and LaTeX tables for both metrics.
 """
 import csv
 import os
@@ -25,13 +33,13 @@ def compute_stats(gains):
     return mean_gain, variance, variance ** 0.5
 
 
-def generate_latex_table(data, dataset_label):
+def generate_latex_table(data, dataset_label, metric='Mean Gain'):
     budgets = sorted(data['Budget'].unique())
     strategies = set(data['Strategy'].unique())
     withsoft_strategies = {s for s in strategies if 'withsoft' in s}
     main_strategies = sorted(strategies - withsoft_strategies)
 
-    max_values = {b: data[data['Budget'] == b]['Mean Gain'].max()
+    max_values = {b: data[data['Budget'] == b][metric].max()
                   for b in budgets}
 
     table = "\\begin{table*}[h!]\n\\centering\n\\begin{scriptsize}\n"
@@ -46,8 +54,8 @@ def generate_latex_table(data, dataset_label):
                           & (data['Budget'] == budget)]
             withsoft = data[(data['Strategy'] == strategy + "_withsoft")
                             & (data['Budget'] == budget)]
-            nval = normal['Mean Gain'].values[0] if not normal.empty else '-'
-            wval = withsoft['Mean Gain'].values[0] if not withsoft.empty else '-'
+            nval = normal[metric].values[0] if not normal.empty else '-'
+            wval = withsoft[metric].values[0] if not withsoft.empty else '-'
             nfmt = (f"\\textbf{{{nval}}}"
                     if nval == max_values[budget] and nval != '-' else str(nval))
             wfmt = (f"\\textbf{{{wval}}}"
@@ -55,10 +63,12 @@ def generate_latex_table(data, dataset_label):
             row.append(f"{nfmt}({wfmt})" if wval != '-' else nfmt)
         table += " & ".join(row) + " \\\\\n\\hline\n"
 
+    slug = metric.lower().replace(' ', '')
     table += "\\end{tabular}\n\\end{scriptsize}\n"
-    table += ("\\caption{Mean Gain for various strategies across budgets for "
+    table += (f"\\caption{{{metric} for various strategies across budgets for "
               f"{dataset_label}}}\n")
-    table += f"\\label{{tab:{dataset_label.lower()}labels}}\n\\end{{table*}}\n"
+    table += (f"\\label{{tab:{dataset_label.lower()}{slug}}}\n"
+              "\\end{table*}\n")
     return table
 
 
@@ -71,13 +81,15 @@ def run_statistics(base_dir, budgets, rounds, avg_col, strategies,
     with open(output_path + "_allclasses.csv", "w", newline='') as csvfile:
         writer = csv.writer(csvfile)
         writer.writerow(["Strategy", "Budget", "Mean Gain", "Variance",
-                         "Standard Deviation"])
+                         "Standard Deviation", "Mean Final Acc",
+                         "Final Acc SD"])
         for budget in budgets:
             for strategy in strategies:
                 cell = os.path.join(base_dir, strategy, str(budget))
                 if not os.path.exists(cell):
                     continue
                 gains = []
+                finals = []
                 for experiment in experiments:
                     path = os.path.join(cell, experiment)
                     if not os.path.exists(path):
@@ -87,18 +99,22 @@ def run_statistics(base_dir, budgets, rounds, avg_col, strategies,
                             continue
                         df = pd.read_csv(os.path.join(path, csv_file),
                                          header=None)
-                        gains.append(df.iloc[rounds - 1, avg_col]
-                                     - df.iloc[0, avg_col])
+                        final = df.iloc[rounds - 1, avg_col]
+                        finals.append(final)
+                        gains.append(final - df.iloc[0, avg_col])
                 if not gains:
                     continue
                 mean_gain, variance, sd_gain = compute_stats(gains)
+                mean_final, _, sd_final = compute_stats(finals)
                 mean_gain, variance, sd_gain = (round(mean_gain, 2),
                                                 round(variance, 2),
                                                 round(sd_gain, 2))
+                mean_final, sd_final = round(mean_final, 2), round(sd_final, 2)
                 writer.writerow([strategy, budget, mean_gain, variance,
-                                 sd_gain])
+                                 sd_gain, mean_final, sd_final])
                 print(f"Strategy: {strategy}, Budget: {budget}, "
-                      f"Mean Gain: {mean_gain}, SD: {sd_gain}")
+                      f"Mean Gain: {mean_gain} (SD {sd_gain}), "
+                      f"Mean Final Acc: {mean_final} (SD {sd_final})")
                 entry = data.setdefault(strategy,
                                         {'means': [], 'sds': [], 'budgets': []})
                 entry['means'].append(mean_gain)
@@ -124,7 +140,8 @@ def run_statistics(base_dir, budgets, rounds, avg_col, strategies,
                 bbox_inches='tight', pad_inches=0.1)
 
     df = pd.read_csv(output_path + "_allclasses.csv")
-    latex_table = generate_latex_table(df, dataset_label)
-    with open(output_path + "_allclasses.tex", "w") as text_file:
-        text_file.write(latex_table)
-    print(f"LaTeX table saved to {output_path}_allclasses.tex")
+    for metric, suffix in (('Mean Gain', '_allclasses.tex'),
+                           ('Mean Final Acc', '_allclasses_finalacc.tex')):
+        with open(output_path + suffix, "w") as text_file:
+            text_file.write(generate_latex_table(df, dataset_label, metric))
+        print(f"LaTeX table ({metric}) saved to {output_path}{suffix}")
