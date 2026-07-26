@@ -117,13 +117,23 @@ python scripts/audit_results.py
 
 ### Paper-results status
 
-| Dataset | Status |
-|---------|--------|
-| CIFAR-10 | Complete (11 strategies × 7 budgets × exp2–4) |
-| SVHN | Complete (`WASSAL_WITHSOFT` + AL baselines × 5 budgets × exp2–4) |
-| PneumoniaMNIST | Complete (`WASSAL_WITHSOFT` + AL baselines × 9 budgets × exp2–4) |
-| STL-10 | Merged into `inpaper/` from `onlywassal` + `onlyal` |
-| Caltech-101 | Multi-seed rerun (exp2–4, budgets including 175) in progress |
+All five datasets are complete: `python scripts/audit_results.py` reports
+948/948 cells present with the full round count. Every dataset uses the same
+three seeds (exp2–4).
+
+| Dataset | Grid | `WASSAL_WITHSOFT` vs. best baseline (mean final accuracy) |
+|---------|------|-----------------------------------------------------------|
+| CIFAR-10 | 11 strategies × 7 budgets | Wins 7/7 budgets, +0.3 to +3.9 pts (largest margin at the smallest budget) |
+| SVHN | 10 strategies × 5 budgets | Wins 3/5 budgets, all at low budget; loses at 175 and 200 |
+| PneumoniaMNIST | 10 strategies × 9 budgets | Wins 9/9 budgets, +3 to +5 pts |
+| STL-10 | 11 strategies × 7 budgets | Wins 6/7 budgets, +0.5 to +1.8 pts; narrow 0.1 pt loss at budget 50 |
+| Caltech-101 | 11 strategies × 5 budgets, 8 rounds | Loses all 5 budgets by 1–2 pts |
+
+Statistics scripts report both **mean accuracy gain** (last round minus initial
+model) and **mean final accuracy**. Prefer final accuracy when comparing across
+strategies: a few runs started from initial models with noticeably different
+accuracy, which inflates the variance of the gain metric without affecting
+where a strategy actually ends up.
 
 ## Reproducing paper tables and figures
 
@@ -134,7 +144,7 @@ python trust/utils/CalcStatistics_cifar10.py
 python trust/utils/CalcStatistics_svhn.py
 python trust/utils/CalcStatistics_pneumonia.py
 python trust/utils/CalcStatistics_stl10.py
-python trust/utils/CalcStatistics_caltech.py   # after Caltech rerun finishes
+python trust/utils/CalcStatistics_caltech.py
 ```
 
 Each script writes `_allclasses.csv`, `.png`, and `.tex` next to the results

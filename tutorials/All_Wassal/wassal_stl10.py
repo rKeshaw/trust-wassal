@@ -1572,11 +1572,9 @@ def run_targeted_selection(
 
 
 # %%
-experiments = ["exp1"]
-seeds = [48]
+experiments = ["exp2", "exp3", "exp4"]
+seeds = [48, 86, 28, 92]
 #exp1seed=24,
-# experiments = ["exp2","exp3","exp4"]
-# seeds = [48, 86, 28, 92]
 budgets = [25, 50, 100, 125, 150, 175, 200]
 
 # embedding_type = "features" #Type of the representation to use (gradients/features)
@@ -1657,6 +1655,14 @@ if __name__ == "__main__":
     skip_methods= sys.argv[2].split()
     skip_budgets = list(map(int, sys.argv[3].split()))
     soft_loss_hyperparam=float(sys.argv[6])
+    # Optional args 7-9 narrow the sweep so a single cell can be re-run
+    # without touching the rest of the grid.
+    if len(sys.argv) > 7 and sys.argv[7].strip():
+        experiments = sys.argv[7].split()
+    if len(sys.argv) > 8 and sys.argv[8].strip():
+        seeds = list(map(int, sys.argv[8].split()))
+    if len(sys.argv) > 9 and sys.argv[9].strip():
+        budgets = list(map(int, sys.argv[9].split()))
 
 # Model Creation
 model = create_model(model_name, num_cls, device, embedding_type)

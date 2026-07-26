@@ -43,7 +43,10 @@ DATASETS = {
     "stl10": {
         "rounds": 10,
         "budgets": [25, 50, 100, 125, 150, 175, 200],
-        "experiments": ["exp1", "exp2", "exp3", "exp4"],
+        # An extra exp1 seed exists on disk for most STL-10 cells but is not
+        # part of the paper matrix (it was trained from a different initial
+        # model), so all datasets are audited over the same three seeds.
+        "experiments": ["exp2", "exp3", "exp4"],
         "methods": ["WASSAL", "WASSAL_WITHSOFT"] + AL_BASELINES,
     },
     "caltech101": {

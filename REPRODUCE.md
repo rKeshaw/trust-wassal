@@ -41,8 +41,12 @@ hyperparameter used for paper runs: `0.3`.
 | CIFAR-10 | 25 50 100 125 150 175 200 | 10 | exp2–4 (48/86/28) | Complete in `inpaper/` |
 | SVHN | 25 50 100 175 200 | 10 | exp2–4 | Complete (`WASSAL_WITHSOFT` + AL) |
 | PneumoniaMNIST | 20–100 step 10 | 10 | exp2–4 | Complete (`WASSAL_WITHSOFT` + AL) |
-| STL-10 | 25 50 100 125 150 175 200 | 10 | exp1–4 | Merged into `inpaper/` |
-| Caltech-101 | 25 50 100 175 200 | 8 | exp2–4 | Rerun in progress |
+| STL-10 | 25 50 100 125 150 175 200 | 10 | exp2–4 | Complete in `inpaper/` |
+| Caltech-101 | 25 50 100 175 200 | 8 | exp2–4 | Complete in `inpaper/` |
+
+STL-10 also has an `exp1` seed on disk for most cells. It is excluded from the
+paper because it was trained from a different initial model, so all five
+datasets are reported over the same three seeds.
 
 ## 4. Running the sweeps
 
@@ -111,6 +115,44 @@ When the rerun finishes:
 python scripts/audit_results.py
 python trust/utils/CalcStatistics_caltech.py
 ```
+
+### Re-running a single cell
+
+`wassal_stl10.py` takes three optional arguments after the soft-loss
+hyperparameter — experiments, seeds, and budgets — which narrow the sweep to a
+single cell. Point `experiment_name` at a scratch folder so the run cannot
+overwrite anything in `inpaper/`, then copy the cell across once it looks
+right. `scripts/rerun_stl10_glister_cell.sh` is a worked example that
+regenerates `glister` at budget 25 for `exp2`:
+
+```bash
+bash scripts/rerun_stl10_glister_cell.sh
+tmux attach -t stl10-fix
+```
+
+Be aware that round 0 evaluates a *cached* initial model shared by every seed
+within an `experiment_name`, and that the driver re-saves that checkpoint at
+the end of round 0. A cell re-run long after the original sweep therefore
+starts from a different initial model than its siblings, which leaves its
+final accuracy comparable but its accuracy *gain* not.
+
+### The one repaired cell
+
+STL-10 `glister` / budget 25 / `exp2` wrote an all-100.0 placeholder as its
+round-0 row and omitted the corresponding `test_acc` entry; the rest of that
+run is intact. Because round 0 records the shared initial model, the correct
+row was recorded verbatim by the 10 other strategies in the same
+budget/seed group, so it was restored rather than re-run (a re-run cannot
+recover the original checkpoint, per the note above):
+
+```bash
+python scripts/repair_stl10_glister_cell.py --dry-run   # inspect
+python scripts/repair_stl10_glister_cell.py             # apply
+```
+
+The script refuses to run if the sibling strategies disagree on the round-0
+row, is a no-op once applied, and leaves `.orig` copies of both files
+alongside the repaired ones.
 
 ## 6. Assembling the paper results tree
 
