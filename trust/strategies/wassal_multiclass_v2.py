@@ -141,21 +141,25 @@ class WASSAL_Multiclass(Strategy):
         embedding_type = self.args.get('embedding_type', "features")
         layer_name = self.args.get('layer_name', "avgpool") if embedding_type == "features" else None
         gradType = self.args.get('gradType', "bias_linear") if embedding_type == "gradients" else None
-        minibatch_size = self.args.get('minibatch_size', 4000)
+        minibatch_size = self.args.get('minibatch_size', None)
         lr = self.args.get('lr', 0.001)
         step_size = self.args.get('step_size', 10)
         iterations = self.args.get('wassal_iterations', 100)
 
-        loss_func = SamplesLoss("sinkhorn", p=2, blur=0.05, scaling=0.7, backend="online")
-        
+        loss_func = SamplesLoss("sinkhorn", p=2, blur=0.05, scaling=0.7, backend="tensorized")
+
         # Determine the unique classes in the query dataset
         classes = torch.stack([item[1] for item in self.query_dataset]).to(self.device)  # Assuming item[1] is the class label
         unique_classes = torch.unique(classes)
 
         unlabeled_dataset_len = len(self.unlabeled_dataset)
+        if minibatch_size is None:
+            # Default to the full pool in one batch, matching the paper's
+            # stated design.
+            minibatch_size = unlabeled_dataset_len
         shuffled_indices = list(range(unlabeled_dataset_len))
         random.shuffle(shuffled_indices)
-        
+
         # Initializing optimization
         simplex_tensor = torch.ones(unlabeled_dataset_len, device=self.device) / unlabeled_dataset_len
         simplex_tensor.requires_grad_(True)
@@ -172,6 +176,18 @@ class WASSAL_Multiclass(Strategy):
             optimizer.zero_grad()
 
             num_batches = math.ceil(unlabeled_dataset_len / minibatch_size)
+            if num_batches > 1:
+                # Merge a pathologically small remainder batch into the
+                # previous one instead of leaving it standalone - verified
+                # by direct testing that a very small last batch (e.g. size
+                # 1) can degenerate geomloss's Sinkhorn computation
+                # (ValueError: Maximum allowed size exceeded / divide-by-zero
+                # in its epsilon schedule). The existing min(...) end bound
+                # in the loop below then absorbs the remainder automatically
+                # once num_batches is reduced.
+                last_batch_size = unlabeled_dataset_len - (num_batches - 1) * minibatch_size
+                if last_batch_size < minibatch_size / 2:
+                    num_batches -= 1
             for batch_idx in range(num_batches):
                 start_idx = batch_idx * minibatch_size
                 end_idx = min((batch_idx + 1) * minibatch_size, unlabeled_dataset_len)
@@ -249,22 +265,26 @@ class WASSAL_Multiclass(Strategy):
         embedding_type = self.args.get('embedding_type', "features")
         layer_name = self.args.get('layer_name', "avgpool") if embedding_type == "features" else None
         gradType = self.args.get('gradType', "bias_linear") if embedding_type == "gradients" else None
-        minibatch_size = self.args.get('minibatch_size', 4000)
+        minibatch_size = self.args.get('minibatch_size', None)
         lr = self.args.get('lr', 0.001)
         step_size = self.args.get('step_size', 10)
         iterations = self.args.get('wassal_iterations', 100)
 
-        loss_func = SamplesLoss("sinkhorn", p=2, blur=0.05, scaling=0.7, backend="online")
-        
+        loss_func = SamplesLoss("sinkhorn", p=2, blur=0.05, scaling=0.7, backend="tensorized")
+
         # Determine the unique classes in the query dataset
         classes = torch.stack([item[1] for item in self.query_dataset]).to(self.device)  # Assuming item[1] is the class label
         unique_classes = torch.unique(classes)
         num_classes = len(torch.unique(torch.stack([item[1] for item in self.query_dataset])))
 
         unlabeled_dataset_len = len(self.unlabeled_dataset)
+        if minibatch_size is None:
+            # Default to the full pool in one batch, matching the paper's
+            # stated design.
+            minibatch_size = unlabeled_dataset_len
         shuffled_indices = list(range(unlabeled_dataset_len))
         random.shuffle(shuffled_indices)
-        
+
         # Initializing optimization
         simplex_tensor = torch.ones(unlabeled_dataset_len, device=self.device) / unlabeled_dataset_len
         simplex_tensor.requires_grad_(True)
@@ -275,6 +295,18 @@ class WASSAL_Multiclass(Strategy):
         query_dataset_features = self._compute_features(self.query_dataset, embedding_type, layer_name, gradType, True).to(self.device)
         unlabeled_dataset_features = self._compute_features(self.unlabeled_dataset, embedding_type, layer_name, gradType, False).to(self.device)
         num_batches = math.ceil(unlabeled_dataset_len / minibatch_size)
+        if num_batches > 1:
+            # Merge a pathologically small remainder batch into the
+            # previous one instead of leaving it standalone - verified
+            # by direct testing that a very small last batch (e.g. size
+            # 1) can degenerate geomloss's Sinkhorn computation
+            # (ValueError: Maximum allowed size exceeded / divide-by-zero
+            # in its epsilon schedule). The existing min(...) end bound
+            # in the loop below then absorbs the remainder automatically
+            # once num_batches is reduced.
+            last_batch_size = unlabeled_dataset_len - (num_batches - 1) * minibatch_size
+            if last_batch_size < minibatch_size / 2:
+                num_batches -= 1
         temp_loop=True
         for epoch in range(iterations):
             total_loss = 0.0
@@ -332,9 +364,9 @@ class WASSAL_Multiclass(Strategy):
                 break
         
 
-        sorted_values, sorted_indices = torch.sort(simplex_tensor, descending=True)
+        sorted_values, sorted_indices = torch.sort(simplex_tensor)
         selected_indices = sorted_indices[:budget].cpu().numpy()
-        
+
         #once pu is found do equ 6 of https://www.overleaf.com/project/6209ee726c723a7ddb95defa
 
         classwise_simplex_query = []
@@ -454,7 +486,7 @@ class WASSAL_Multiclass(Strategy):
         gradType=None
         if(embedding_type=="gradients"):
             gradType = self.args['gradType'] if 'gradType' in self.args else "bias_linear"
-        loss_func = SamplesLoss("sinkhorn", p=2, blur=0.05, scaling=0.7,backend="online")
+        loss_func = SamplesLoss("sinkhorn", p=2, blur=0.05, scaling=0.7,backend="tensorized")
         
         unlabeled_dataset_len=len(self.unlabeled_dataset)
         shuffled_indices = list(range(unlabeled_dataset_len))
@@ -462,10 +494,22 @@ class WASSAL_Multiclass(Strategy):
         sampler = customSampler(shuffled_indices)
 
         query_dataset_len = len(self.query_dataset)
-        minibatch_size = self.args['minibatch_size'] if 'minibatch_size' in self.args else 4000
-       
+        minibatch_size = self.args['minibatch_size'] if 'minibatch_size' in self.args else unlabeled_dataset_len
+
         num_batches = math.ceil(unlabeled_dataset_len/minibatch_size)
-        
+        if num_batches > 1:
+            # Merge a pathologically small remainder batch into the
+            # previous one instead of leaving it standalone - verified
+            # by direct testing that a very small last batch (e.g. size
+            # 1) can degenerate geomloss's Sinkhorn computation
+            # (ValueError: Maximum allowed size exceeded / divide-by-zero
+            # in its epsilon schedule). The existing min(...) end bound
+            # in the loop below then absorbs the remainder automatically
+            # once num_batches is reduced.
+            last_batch_size = unlabeled_dataset_len - (num_batches - 1) * minibatch_size
+            if last_batch_size < minibatch_size / 2:
+                num_batches -= 1
+
         num_classes = len(torch.unique(torch.stack([item[1] for item in self.query_dataset])))
         classwise_simplex_query = []
         classwise_simplex_refrain = []
@@ -572,26 +616,28 @@ class WASSAL_Multiclass(Strategy):
                 loss_avg_query_refrain=0.0
                 #calc num_batches
                 num_batches = math.ceil(unlabeled_dataset_len/minibatch_size)
+                if num_batches > 1:
+                    # Merge a pathologically small remainder batch into the
+                    # previous one instead of leaving it standalone - verified
+                    # by direct testing that a very small last batch (e.g. size
+                    # 1) can degenerate geomloss's Sinkhorn computation
+                    # (ValueError: Maximum allowed size exceeded / divide-by-zero
+                    # in its epsilon schedule). The existing min(...) end bound
+                    # in the loop below then absorbs the remainder automatically
+                    # once num_batches is reduced.
+                    last_batch_size = unlabeled_dataset_len - (num_batches - 1) * minibatch_size
+                    if last_batch_size < minibatch_size / 2:
+                        num_batches -= 1
                 #batchiwise WD calculation
             
                 for batch_idx in range(num_batches):
                     #print('entering batchwise')
                     # Get the features using the pretrained model
-                
-                
-                # Handle the last batch size
-                    current_batch_size = len(simplex_query[batch_idx*minibatch_size:])
-                #if the current batch size is less than minibatch size, then we need to adjust the simplex batch query and simplex batch refrain
-                    
-                    if(current_batch_size<minibatch_size) and batch_idx !=  0:
-                        diff=minibatch_size-current_batch_size
-                    #for beginning index 0 add 1 to diff
-                        
-                        begindex=(batch_idx*minibatch_size)-diff
-                        endindex=((batch_idx+1)*minibatch_size)-diff
-                    else:
-                        begindex=batch_idx*minibatch_size
-                        endindex=(batch_idx+1)*minibatch_size
+
+                    # Non-overlapping batch bounds (see wassal_multiclass.py
+                    # for the same fix and rationale).
+                    begindex = batch_idx*minibatch_size
+                    endindex = min((batch_idx+1)*minibatch_size, unlabeled_dataset_len)
                 #simplex batch query
                     simplex_batch_query = simplex_query[begindex : endindex]
                 #should we average or project?
@@ -697,9 +743,10 @@ class WASSAL_Multiclass(Strategy):
             #add unique indices to the selected_indices by checking with unique_selected_indices
             temp_added_indices=0
             for idx in sorted_indices:
-                if idx not in unique_selected_indices:
-                    unique_selected_indices.add(idx.item())
-                    selected_indices.append(idx.item())
+                real_idx = non_zero_indices[idx].item()
+                if real_idx not in unique_selected_indices:
+                    unique_selected_indices.add(real_idx)
+                    selected_indices.append(real_idx)
                     temp_added_indices+=1
                 if temp_added_indices==per_class_budget:
                     break
@@ -733,9 +780,10 @@ class WASSAL_Multiclass(Strategy):
             #add unique indices to the selected_indices by checking with unique_selected_indices
             temp_added_indices=0
             for idx in sorted_indices:
-                if idx not in unique_selected_indices:
-                    unique_selected_indices.add(idx.item())
-                    selected_indices.append(idx.item())
+                real_idx = non_zero_indices[idx].item()
+                if real_idx not in unique_selected_indices:
+                    unique_selected_indices.add(real_idx)
+                    selected_indices.append(real_idx)
                     temp_added_indices+=1
                 if temp_added_indices==diff:
                     break

@@ -1,14 +1,37 @@
 #!/usr/bin/env python3
 # prepare_caltech_from_tfds_split90_10_32x32.py
-# Download Caltech-101 (TFDS), resize to 32×32, merge all samples,
-# then stratified 90/10 split → save as .npz (C,H,W float32 in [0,1]).
+# Get Caltech-101 (same archive/labels TFDS's caltech101 builder uses),
+# resize to 32×32, merge all samples, then stratified 90/10 split → save as
+# .npz (C,H,W float32 in [0,1]).
+#
+# This does not import TensorFlow: only `tensorflow_datasets` (the metadata
+# package) is used, purely to read its bundled canonical class-name list
+# (image_classification/caltech101_labels.txt) so label indices match what
+# tfds.load("caltech101") would have assigned. TFDS's own dataset_builder
+# additionally partitions each class into a 30-per-class "train" split and a
+# "test" split with the rest (fixed seed 1234) before this script's own
+# StratifiedShuffleSplit merges them straight back together — so skipping
+# that intermediate partition changes nothing about the final output; only
+# every image's (pixels, label) pair needs to match, which this reproduces
+# exactly (same archive, same label→index mapping, same resize pipeline).
+#
+# Expects the archive TFDS would download, caltech-101.zip
+# (sha256 331234750fc7f77520e50d9565e8b6907b03565e30320da1401130db08c61f91),
+# already placed at data/tfds/downloads/manual/caltech-101.zip.
 
 import os
+import tarfile
+import zipfile
 import numpy as np
 from PIL import Image
 from tqdm import tqdm
 from sklearn.model_selection import StratifiedShuffleSplit
 import tensorflow_datasets as tfds
+
+_MANUAL_ZIP = "data/tfds/downloads/manual/caltech-101.zip"
+_EXTRACT_DIR = "data/tfds_manual_extract"
+_IMAGES_DIR = os.path.join(_EXTRACT_DIR, "101_ObjectCategories")
+_LABELS_FNAME = "image_classification/caltech101_labels.txt"
 
 def pil_resize_32x32(img: Image.Image, size=(32, 32)) -> Image.Image:
     """Resize to 32×32 directly."""
@@ -23,30 +46,58 @@ def pil_to_chw_float32(img: Image.Image) -> np.ndarray:
     arr = arr.transpose(2, 0, 1)
     return arr
 
-def extract_all_images(tfds_split):
+def ensure_extracted():
+    if os.path.isdir(_IMAGES_DIR):
+        return
+    if not os.path.exists(_MANUAL_ZIP):
+        raise FileNotFoundError(
+            f"Expected the Caltech-101 archive at {_MANUAL_ZIP} "
+            "(the same file tfds.load('caltech101') would download)."
+        )
+    print(f"Extracting {_MANUAL_ZIP} ...")
+    with zipfile.ZipFile(_MANUAL_ZIP) as z:
+        z.extract("caltech-101/101_ObjectCategories.tar.gz", _EXTRACT_DIR)
+    tar_path = os.path.join(_EXTRACT_DIR, "caltech-101", "101_ObjectCategories.tar.gz")
+    with tarfile.open(tar_path) as t:
+        t.extractall(_EXTRACT_DIR)
+
+def load_label_names():
+    names_file = tfds.core.tfds_path(_LABELS_FNAME)
+    with names_file.open() as f:
+        return [line.strip() for line in f if line.strip()]
+
+def extract_all_images():
+    ensure_extracted()
+    label_names = load_label_names()
+    label_to_idx = {name: i for i, name in enumerate(label_names)}
+
+    class_dirs = sorted(
+        d for d in os.listdir(_IMAGES_DIR)
+        if os.path.isdir(os.path.join(_IMAGES_DIR, d))
+    )
+    unknown = [d for d in class_dirs if d.lower() not in label_to_idx]
+    if unknown:
+        raise ValueError(f"Class folders not found in {_LABELS_FNAME}: {unknown}")
+
     images, labels = [], []
-    for img, lbl in tqdm(tfds_split):
-        img_pil = Image.fromarray(img.numpy())
-        img_pil = pil_resize_32x32(img_pil, (32, 32))  # Changed to 32×32
-        arr = pil_to_chw_float32(img_pil)
-        images.append(arr)
-        labels.append(int(lbl.numpy()))
+    for d in tqdm(class_dirs):
+        label_idx = label_to_idx[d.lower()]
+        class_path = os.path.join(_IMAGES_DIR, d)
+        fnames = sorted(f for f in os.listdir(class_path) if f.endswith(".jpg"))
+        for fname in fnames:
+            img_pil = Image.open(os.path.join(class_path, fname))
+            img_pil = pil_resize_32x32(img_pil, (32, 32))  # Changed to 32×32
+            arr = pil_to_chw_float32(img_pil)
+            images.append(arr)
+            labels.append(label_idx)
     return np.stack(images, axis=0), np.array(labels, dtype=np.int64)
 
 def main():
     os.makedirs("data", exist_ok=True)
-    print("Downloading / loading Caltech-101 from TensorFlow Datasets...")
-    splits = tfds.load("caltech101", split=["train", "test"],
-                       as_supervised=True, data_dir="./data/tfds", download=True)
-    train_split, test_split = splits
+    print("Loading Caltech-101 (local archive, no TensorFlow required)...")
 
     print("Converting full dataset to 32×32 numpy arrays (this may take time)...")
-    X_train, y_train = extract_all_images(train_split)
-    X_test, y_test = extract_all_images(test_split)
-
-    # Merge all
-    X_all = np.concatenate([X_train, X_test])
-    y_all = np.concatenate([y_train, y_test])
+    X_all, y_all = extract_all_images()
     print(f"Total samples merged: {len(X_all)}")
 
     # 90/10 stratified split

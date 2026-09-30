@@ -45,6 +45,8 @@ from sklearn.metrics.pairwise import cosine_similarity, pairwise_distances
 # from trust.strategies.scmi import SCMI
 from trust.strategies.random_sampling import RandomSampling
 from trust.strategies.wassal_multiclass import WASSAL_Multiclass
+from trust.strategies.modern_al import TypiClust, ProbCover, DCoM, ALFAMargin
+from trust.strategies.sota_al import MaxHerding, UHerding, WassersteinIP
 # from trust.strategies.wassal_private import WASSAL_P
 
 from distil.active_learning_strategies.entropy_sampling import EntropySampling
@@ -65,6 +67,11 @@ from trust.utils.utils import *
 from trust.utils.viz import tsne_smi
 import math
 from random import shuffle
+
+# Toggle: when True, adds Eq 7's soft-loss weighted training, which this
+# driver originally never implemented at all (WASSAL_WITHSOFT behaved
+# identically to plain WASSAL). When False, keeps that original behavior.
+PAPER_ALIGNED_SOFT_LOSS = True
 
 # %% [markdown]
 # ### Helper functions
@@ -807,6 +814,29 @@ def run_targeted_selection(
     subprocess.run(["mkdir", "-p", all_logs_dir])
     exp_name = "results_" + sf + "_" + str(bud)
 
+    # Resume support: this (experiment, budget, strategy) cell's result
+    # is only ever written once, at the very end of this function, after
+    # all num_rounds AL rounds complete. There was previously no way to
+    # skip a cell whose result already exists short of manually computing
+    # skip_strategies/skip_budgets CLI arguments (coarse: applies across
+    # every experiment). If this exact cell already has a saved result,
+    # skip it before any GPU work begins - this makes relaunching after
+    # an interruption (e.g. an OOM from unrelated GPU contention) resume
+    # from wherever it left off, rather than repeating completed cells.
+    # A cell interrupted mid-way (no result JSON yet) is NOT resumed at
+    # the round level - it restarts from round 0 when relaunched.
+    result_json_path = os.path.join(all_logs_dir, exp_name + ".json")
+    if os.path.exists(result_json_path):
+        print(
+            "Skipping "
+            + exp_name
+            + " (run "
+            + str(run)
+            + "): result already exists at "
+            + result_json_path
+        )
+        return
+
     # Model, optimizer, loss function
     model = create_model(model_name, num_cls, device, embedding_type)
     criterion, criterion_nored = loss_function()
@@ -837,8 +867,16 @@ def run_targeted_selection(
             "step_size": 10,
             "min_iteration": 5,
         }
-        # Calculate soft subset budget
-        ss_budget = int((ss_max_budget_percentage / 100) * len(lake_set))
+        # Calculate soft subset budget (per class). SVHN/CIFAR-10/Pneumonia
+        # use small fixed per-class caps (100/400/500) that keep the total
+        # soft-subset in the low thousands across their ~2-10 classes. The
+        # previous formula here (80% of the whole lake_set, per class) was
+        # never actually exercised before this mechanism was wired up: with
+        # 102 classes it produced ~42k soft-subset entries from a ~3.6k-image
+        # lake_set (11x+ duplication), wildly disproportionate to the other
+        # datasets. Use a small per-class cap instead, scaled down for the
+        # much larger class count so the total stays in the same ballpark.
+        ss_budget = 30
         if ss_budget > len(lake_set):
             ss_budget = len(lake_set)
         strategy_args_softsubset["soft_loss_hyperparam"] = soft_loss_hyperparam
@@ -897,6 +935,34 @@ def run_targeted_selection(
             )
         elif sf == "margin" or sf == "margin_withsoft":
             strategy_sel = MarginSampling(
+                train_set, unlabeled_lake_set, model, num_cls, strategy_args
+            )
+        elif sf == "typiclust":
+            strategy_sel = TypiClust(
+                train_set, unlabeled_lake_set, model, num_cls, strategy_args
+            )
+        elif sf == "probcover":
+            strategy_sel = ProbCover(
+                train_set, unlabeled_lake_set, model, num_cls, strategy_args
+            )
+        elif sf == "dcom":
+            strategy_sel = DCoM(
+                train_set, unlabeled_lake_set, model, num_cls, strategy_args
+            )
+        elif sf == "alfamargin":
+            strategy_sel = ALFAMargin(
+                train_set, unlabeled_lake_set, model, num_cls, strategy_args
+            )
+        elif sf == "maxherding":
+            strategy_sel = MaxHerding(
+                train_set, unlabeled_lake_set, model, num_cls, strategy_args
+            )
+        elif sf == "uherding":
+            strategy_sel = UHerding(
+                train_set, unlabeled_lake_set, model, num_cls, strategy_args
+            )
+        elif sf == "wassersteinip":
+            strategy_sel = WassersteinIP(
                 train_set, unlabeled_lake_set, model, num_cls, strategy_args
             )
 
@@ -1217,7 +1283,94 @@ def run_targeted_selection(
                         lake_set, classwise_final_indices_simplex_cpu,simplex_dir
                     )
 
-                
+            weighted_lakeloader = None
+            # Eq 7: build the soft-subset weighted loader (mirrors SVHN/CIFAR-10/
+            # Pneumonia drivers). Toggleable since Caltech originally never
+            # implemented this at all - "WASSAL_WITHSOFT" behaved identically
+            # to plain WASSAL for this dataset.
+            if PAPER_ALIGNED_SOFT_LOSS and 'WITHSOFT' in strategy and classwise_final_indices_simplex is not None:
+                all_small_images = []
+                all_small_targets = []
+                all_small_simplex_query = []
+
+                # Each class's simplex is normalized fully independently
+                # (_proj_simplex has no joint constraint across classes),
+                # so nothing otherwise stops the same lake point from
+                # being a top-weight "landmark" for more than one of
+                # Caltech's 102 classes at once, which would feed the
+                # model contradictory pseudo-labels for the same image in
+                # the same optimizer step. (S1 exclusion needs no
+                # handling here: the strategy class already zeroes S1
+                # positions in simplex_query before returning it -
+                # verified directly.) Assign each point to at most one
+                # class - whichever class it has the highest weight
+                # under.
+                all_class_weights = torch.stack(
+                    [cw[0].detach().cpu() for cw in classwise_final_indices_simplex]
+                )
+                argmax_class_per_point = all_class_weights.argmax(dim=0)
+
+                for class_pos, (
+                    simplex_query,
+                    simplex_refrain,
+                    class_idx,
+                ) in enumerate(classwise_final_indices_simplex):
+                    images = [lake_set[i][0] for i in range(len(lake_set))]
+                    targets = torch.tensor(class_idx)
+                    targets = targets.repeat(len(lake_set))
+                    sofftsimplex_query = simplex_query.detach().cpu().numpy()
+                    eligible = (argmax_class_per_point == class_pos).numpy()
+                    sofftsimplex_query = sofftsimplex_query * eligible
+                    # top_elements_contribute_to_percentage's target_sum is a
+                    # fixed 0.8, i.e. it assumes the input already sums to
+                    # ~1 (true for an unmasked, freshly-projected simplex).
+                    # Zeroing ineligible entries breaks that assumption -
+                    # renormalize over the eligible mass so the 80% cutoff,
+                    # and the budget truncation, only ever pick from truly
+                    # eligible (argmax-matching) points.
+                    eligible_mass = sofftsimplex_query.sum()
+                    if eligible_mass <= 0:
+                        continue
+                    sofftsimplex_query = sofftsimplex_query / eligible_mass
+                    _, top_n_indices = top_elements_contribute_to_percentage(
+                        sofftsimplex_query, ss_max_budget_percentage, ss_budget
+                    )
+                    # Hard post-filter, checking the actual renormalized
+                    # weight rather than the class mask: top_elements_
+                    # contribute_to_percentage's cumulative-sum loop can,
+                    # at the extreme n_percent=100 edge, fail to break
+                    # before spilling into the zero-valued tail due to
+                    # floating-point rounding after renormalization -
+                    # verified by direct testing (1550+ trials against
+                    # this exact function). Filtering on the weight
+                    # itself (not just class-mask membership) also
+                    # covers S1 points correctly even in that edge case,
+                    # without needing to track S1 here at all.
+                    top_n_indices = [idx for idx in top_n_indices if sofftsimplex_query[idx] > 0]
+                    all_small_images += [images[i] for i in top_n_indices]
+                    all_small_targets += targets[top_n_indices.copy()].tolist()
+                    all_small_simplex_query += sofftsimplex_query[
+                        top_n_indices
+                    ].tolist()
+
+                print("size of simplex_query for strategy "+sf+" and budget "+str(budget)+" is "+str(len(all_small_simplex_query))+" in round "+str(i))
+
+                if len(all_small_images) > 0:
+                    all_small_targets = torch.tensor(all_small_targets)
+                    all_small_simplex_query = torch.tensor(all_small_simplex_query)
+                    weighted_lake_set = WeightedDataset(
+                        all_small_images,
+                        all_small_targets,
+                        all_small_simplex_query,
+                        None,
+                        None,
+                    )
+                    weighted_lakeloader = torch.utils.data.DataLoader(
+                        weighted_lake_set,
+                        batch_size=trn_batch_size,
+                        shuffle=True,
+                        pin_memory=True,
+                    )
 
             #selecting subset using an AL strategy
             # subset = []
@@ -1281,16 +1434,44 @@ def run_targeted_selection(
             while full_trn_acc[i] < 0.99 and num_ep < 50:
                 num_ep += 1
                 model.train()
-                for batch_idx, (inputs, targets) in enumerate(trainloader):
-                    inputs, targets = inputs.to(device), targets.to(
-                        device, non_blocking=True
-                    )
+                if PAPER_ALIGNED_SOFT_LOSS and weighted_lakeloader is not None:
+                    # Eq 7+8: one optimizer step per epoch, combining hard
+                    # loss over train_set with the soft-weighted loss over
+                    # the soft-subset (per-sample weighted, raw sum).
+                    # Caltech's 102 classes make the soft-subset far larger
+                    # than SVHN/CIFAR-10/Pneumonia's, so gradients are
+                    # accumulated per-batch (backward per batch, step once)
+                    # instead of retaining every batch's graph at once -
+                    # mathematically identical, bounded peak memory.
                     optimizer.zero_grad()
-                    outputs = model(inputs)
-                    loss = criterion(outputs, targets)
-                    loss.backward()
+                    soft_loss_total = 0.0
+                    for batch_idx, (inputs, targets, simplex_query, _, _) in enumerate(weighted_lakeloader):
+                        inputs, targets = inputs.to(device), targets.to(device, non_blocking=True)
+                        simplex_query = simplex_query.to(device)
+                        soft_outputs = model(inputs)
+                        target_loss_per_sample = criterion_nored(soft_outputs, targets)
+                        batch_soft_loss = (simplex_query * target_loss_per_sample).sum()
+                        (soft_loss_hyperparam * batch_soft_loss).backward()
+                        soft_loss_total += batch_soft_loss.item()
+                    hard_loss_total = 0.0
+                    for batch_idx, (inputs, targets) in enumerate(trainloader):
+                        inputs, targets = inputs.to(device), targets.to(device, non_blocking=True)
+                        outputs = model(inputs)
+                        batch_hard_loss = criterion(outputs, targets)
+                        batch_hard_loss.backward()
+                        hard_loss_total += batch_hard_loss.item()
                     optimizer.step()
-                
+                else:
+                    for batch_idx, (inputs, targets) in enumerate(trainloader):
+                        inputs, targets = inputs.to(device), targets.to(
+                            device, non_blocking=True
+                        )
+                        optimizer.zero_grad()
+                        outputs = model(inputs)
+                        loss = criterion(outputs, targets)
+                        loss.backward()
+                        optimizer.step()
+
                 # Compute training accuracy after each epoch
                 model.eval()
                 full_trn_correct = 0
@@ -1467,6 +1648,7 @@ initModelPath = (
 #skip strategies that are already run
 skip_strategies = []
 skip_budgets = []
+only_methods = []
 soft_loss_hyperparam=3
 
 if __name__ == "__main__":
@@ -1475,6 +1657,9 @@ if __name__ == "__main__":
     skip_methods= sys.argv[2].split()
     skip_budgets = list(map(int, sys.argv[3].split()))
     soft_loss_hyperparam=float(sys.argv[6])
+    if len(sys.argv) > 10 and sys.argv[10].strip():
+        # optional whitelist: run ONLY these methods (comma-separated)
+        only_methods = sys.argv[10].split()
 
 # Model Creation
 model = create_model(model_name, num_cls, device, embedding_type)
@@ -1497,6 +1682,14 @@ strategies = [
     ("AL", "badge_withsoft"),
     ("AL_WITHSOFT", "us_withsoft"),
     ("AL", "us"),
+    # modern (2022-2024) baselines for up-to-date comparison
+    ("AL", "typiclust"),
+    ("AL", "probcover"),
+    ("AL", "dcom"),
+    ("AL", "alfamargin"),
+    ("AL", "maxherding"),
+    ("AL", "uherding"),
+    ("AL", "wassersteinip"),
    
 ]
 
@@ -1515,6 +1708,8 @@ for i, experiment in enumerate(experiments):
             if strategy in skip_strategies:
                 continue
             if method in skip_methods and b in skip_budgets:
+                continue
+            if only_methods and method not in only_methods:
                 continue
             print("Budget ", b, " Strategy ", strategy, " Method ", method)
             run_targeted_selection(

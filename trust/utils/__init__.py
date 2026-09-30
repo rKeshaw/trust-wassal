@@ -1,2 +1,2 @@
 # __init__.py
-# Author: Suraj Kothawade <suraj.kothawade@utdallas.edu>
+# Based on the CORDS toolkit (https://github.com/decile-team/cords)
